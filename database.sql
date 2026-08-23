@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS `gimnasios` (
   `email` varchar(100) DEFAULT NULL,
   `direccion` varchar(200) DEFAULT NULL,
   `suscripcion_monto` decimal(10,2) NOT NULL DEFAULT '45000.00',
+  `plan_tipo` enum('standard','pro') NOT NULL DEFAULT 'standard',
   `suscripcion_vencimiento` date DEFAULT NULL,
   `suscripcion_estado` enum('activo','proximo','vencido','suspendido') NOT NULL DEFAULT 'activo',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -52,6 +53,12 @@ CREATE TABLE IF NOT EXISTS `profesores` (
   `nombre` varchar(120) NOT NULL,
   `telefono` varchar(60) DEFAULT NULL,
   `cuota_mensual` decimal(10,2) NOT NULL DEFAULT '0.00',
+  `tipo_remuneracion` varchar(30) NOT NULL DEFAULT 'sueldo_fijo',
+  `porcentaje_comision` decimal(5,2) NOT NULL DEFAULT '0.00',
+  `monto_por_alumno` decimal(10,2) NOT NULL DEFAULT '0.00',
+  `canon_mensual` decimal(10,2) NOT NULL DEFAULT '0.00',
+  `dia_pago_canon` int NOT NULL DEFAULT '10',
+  `activo` tinyint(1) NOT NULL DEFAULT '1',
   `fecha_pago` date DEFAULT NULL,
   `observaciones` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -83,6 +90,8 @@ CREATE TABLE IF NOT EXISTS `alumnos` (
   `profesor_id` int DEFAULT NULL,
   `es_del_gym` tinyint(1) NOT NULL DEFAULT '1',
   `id_users` int UNSIGNED NOT NULL DEFAULT '0',
+  `notas_alumno` text DEFAULT NULL,
+  `notas_coach` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_alu_gym` (`gimnasio_id`),
@@ -113,6 +122,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `profesor_id` int DEFAULT NULL,
   `alumno_id` int DEFAULT NULL,
   `activo` tinyint(1) NOT NULL DEFAULT 1,
+  `debe_cambiar_password` tinyint(1) NOT NULL DEFAULT 0,
   `reset_token` varchar(64) DEFAULT NULL,
   `reset_expira` datetime DEFAULT NULL,
   `creado_en` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -193,7 +203,7 @@ ON DUPLICATE KEY UPDATE `precio` = VALUES(`precio`);
 CREATE TABLE IF NOT EXISTS `pagos` (
   `id` int NOT NULL AUTO_INCREMENT,
   `gimnasio_id` int NOT NULL DEFAULT 1,
-  `tipo` enum('alumno','profesor') NOT NULL,
+  `tipo` varchar(50) NOT NULL,
   `alumno_id` int DEFAULT NULL,
   `profesor_id` int DEFAULT NULL,
   `monto` decimal(10,2) NOT NULL,
@@ -370,6 +380,179 @@ SELECT
     SUM(monto) AS total_recaudado
 FROM pagos
 GROUP BY DATE_FORMAT(fecha_pago, '%Y-%m'), gimnasio_id, tipo, medio_pago;
+
+
+-- ------------------------------------------------------------------------------
+-- 10. TABLA: `ejercicios_catalogo` (Nivel 1: Catálogo Maestro de Ejercicios)
+-- ------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `ejercicios_catalogo` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `gimnasio_id` int DEFAULT NULL,
+  `nombre` varchar(150) NOT NULL,
+  `grupo_muscular` enum('pecho','espalda','piernas','hombros','biceps','triceps','core','cardio','cuerpo_completo') NOT NULL,
+  `descripcion` text DEFAULT NULL,
+  `video_url` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ej_grupo` (`grupo_muscular`),
+  KEY `idx_ej_gym` (`gimnasio_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ------------------------------------------------------------------------------
+-- 11. TABLA: `rutinas_programas` (Nivel 2: Programas / Plantillas 1-7 Días)
+-- ------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `rutinas_programas` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `gimnasio_id` int NOT NULL DEFAULT 1,
+  `titulo` varchar(180) NOT NULL,
+  `objetivo` varchar(120) DEFAULT 'Hipertrofia Muscular',
+  `nivel` enum('principiante','intermedio','avanzado') NOT NULL DEFAULT 'intermedio',
+  `dias_count` tinyint UNSIGNED NOT NULL DEFAULT 3,
+  `descripcion` text DEFAULT NULL,
+  `es_plantilla` tinyint(1) NOT NULL DEFAULT 1,
+  `alumno_id` int DEFAULT NULL,
+  `coach_id` int DEFAULT NULL,
+  `estado` enum('activa','inactiva','archivada') NOT NULL DEFAULT 'activa',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_prog_gym` (`gimnasio_id`),
+  KEY `idx_prog_alu` (`alumno_id`),
+  KEY `idx_prog_plantilla` (`es_plantilla`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ------------------------------------------------------------------------------
+-- 12. TABLA: `rutinas_dias` (Nivel 3: Días de Sesión de Entrenamiento)
+-- ------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `rutinas_dias` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `programa_id` int NOT NULL,
+  `numero_dia` tinyint UNSIGNED NOT NULL DEFAULT 1,
+  `nombre_dia` varchar(80) NOT NULL DEFAULT 'Día 1',
+  `enfoque` varchar(150) DEFAULT NULL,
+  `orden` int NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_dia_prog` (`programa_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ------------------------------------------------------------------------------
+-- 13. TABLA: `rutinas_ejercicios` (Nivel 4: Detalle del Ejercicio & Bloques)
+-- ------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `rutinas_ejercicios` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `dia_id` int NOT NULL,
+  `ejercicio_id` int NOT NULL,
+  `bloque` enum('calentamiento','principal','cardio','vuelta_calma') NOT NULL DEFAULT 'principal',
+  `series` tinyint UNSIGNED NOT NULL DEFAULT 4,
+  `repeticiones` varchar(50) NOT NULL DEFAULT '10-12',
+  `descanso_seg` int UNSIGNED DEFAULT 60,
+  `carga_sugerida` varchar(80) DEFAULT NULL,
+  `notas` text DEFAULT NULL,
+  `orden` int NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_re_dia` (`dia_id`),
+  KEY `idx_re_ej` (`ejercicio_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ------------------------------------------------------------------------------
+-- 14. TABLA: `rutinas_checkins` (Entrenamientos Completados y Feedback)
+-- ------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `rutinas_checkins` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `gimnasio_id` int NOT NULL DEFAULT 1,
+  `alumno_id` int NOT NULL,
+  `programa_id` int DEFAULT NULL,
+  `dia_id` int DEFAULT NULL,
+  `rutina_nombre` varchar(180) NOT NULL,
+  `fecha` date NOT NULL,
+  `hora` time NOT NULL,
+  `ejercicios_completados` int NOT NULL DEFAULT 0,
+  `duracion_min` int NOT NULL DEFAULT 60,
+  `nivel_esfuerzo` tinyint NOT NULL DEFAULT 3,
+  `observaciones` text DEFAULT NULL,
+  `coach_feedback` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_rc_gym` (`gimnasio_id`),
+  KEY `idx_rc_alu` (`alumno_id`, `fecha`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- SEED: CATÁLOGO DE EJERCICIOS MAESTRO
+INSERT INTO `ejercicios_catalogo` (`id`, `nombre`, `grupo_muscular`, `descripcion`) VALUES
+(1, 'Press de Banca Plano con Barra', 'pecho', 'Desarrollo pectoral mayor general'),
+(2, 'Press Inclinado con Mancuernas', 'pecho', 'Pectoral superior y clavicular'),
+(3, 'Press Declinado con Barra', 'pecho', 'Pectoral inferior'),
+(4, 'Aperturas / Flyes con Mancuernas', 'pecho', 'Estiramiento y aislamiento pectoral'),
+(5, 'Cruces en Polea (Crossover)', 'pecho', 'Tensión constante pectoral medio/inferior'),
+(6, 'Pec Deck / Contractor de Pecho', 'pecho', 'Máquina de aislamiento pectoral'),
+(7, 'Fondos en Paralelas (Dips Pecho)', 'pecho', 'Inclinación frontal para pectoral inferior'),
+(8, 'Flexiones de Brazo (Push Ups)', 'pecho', 'Calistenia pectoral y tríceps'),
+(9, 'Jalón al Pecho en Polea', 'espalda', 'Dorsal ancho y amplitud'),
+(10, 'Dominadas Pronas / Neutras', 'espalda', 'Fuerza funcional tren superior'),
+(11, 'Remo con Barra 45°', 'espalda', 'Grosor dorsal y espalda media'),
+(12, 'Remo Unilateral con Mancuerna (Serrucho)', 'espalda', 'Aislamiento dorsal por lado'),
+(13, 'Remo en Polea Baja (Girona)', 'espalda', 'Espalda media y romboides'),
+(14, 'Remo en Barra T', 'espalda', 'Densidad de espalda'),
+(15, 'Pullover en Polea Alta con Cuerda', 'espalda', 'Aislamiento dorsal sin bíceps'),
+(16, 'Hiperextensiones Lumbares', 'espalda', 'Erectores espinales y cadena posterior'),
+(17, 'Sentadilla Trasera con Barra (Squat)', 'piernas', 'Rey de piernas: cuádriceps, glúteos y core'),
+(18, 'Sentadilla Goblet con Mancuerna', 'piernas', 'Ideal para principiantes y movilidad'),
+(19, 'Prensa de Piernas 45°', 'piernas', 'Sobrecarga de cuádriceps sin carga axial'),
+(20, 'Silla de Cuádriceps (Extensiones)', 'piernas', 'Aislamiento directo de cuádriceps'),
+(21, 'Camilla de Femorales Tumbado', 'piernas', 'Isquiotibiales en flexión de rodilla'),
+(22, 'Sillón de Femorales Sentado', 'piernas', 'Isquios con cadera flexionada'),
+(23, 'Peso Muerto Rumano con Mancuernas/Barra', 'piernas', 'Isquiotibiales y glúteos'),
+(24, 'Estocadas / Zancadas Caminando', 'piernas', 'Trabajo unilateral de glúteo y cuádriceps'),
+(25, 'Sentadilla Búlgara', 'piernas', 'Unilateral intenso glúteo/cuádriceps'),
+(26, 'Elevación de Talones en Máquina (Gemelos)', 'piernas', 'Gastrocnemio y sóleo'),
+(27, 'Hip Thrust con Barra / Máquina', 'piernas', 'Aislamiento máximo de glúteo mayor'),
+(28, 'Press Militar con Barra', 'hombros', 'Deltoides anterior y fuerza overhead'),
+(29, 'Press de Hombros Sentado con Mancuernas', 'hombros', 'Desarrollo de masa en deltoides'),
+(30, 'Vuelos Laterales con Mancuernas', 'hombros', 'Aislamiento deltoides lateral (amplitud)'),
+(31, 'Elevaciones Laterales en Polea', 'hombros', 'Tensión constante deltoides lateral'),
+(32, 'Pájaros / Vuelos Posteriores', 'hombros', 'Deltoides posterior y postura'),
+(33, 'Face Pull con Cuerda en Polea', 'hombros', 'Salud articular del manguito rotador y deltoides post'),
+(34, 'Press Arnold con Mancuernas', 'hombros', 'Rotación y activación completa del hombro'),
+(35, 'Elevaciones Frontales con Disco/Mancuerna', 'hombros', 'Deltoides anterior'),
+(36, 'Curl de Bíceps con Barra Z / Recta', 'biceps', 'Masa general del bíceps'),
+(37, 'Curl Alterno con Mancuernas en Banco Inclinado', 'biceps', 'Cabeza larga y pico de bíceps'),
+(38, 'Curl Martillo (Hammer Curl)', 'biceps', 'Braquial y braquiorradial (grosor de brazo)'),
+(39, 'Curl Predicador / Banco Scott', 'biceps', 'Aislamiento estricto sin balanceo'),
+(40, 'Curl Concentrado con Mancuerna', 'biceps', 'Pico de bíceps'),
+(41, 'Curl en Polea Baja con Cuerda', 'biceps', 'Tensión constante'),
+(42, 'Extensión de Tríceps en Polea con Cuerda', 'triceps', 'Cabeza lateral del tríceps'),
+(43, 'Extensión de Tríceps con Barra Recta en Polea', 'triceps', 'Sobrecarga de tríceps'),
+(44, 'Press Francés con Barra Z en Banco Plano', 'triceps', 'Cabeza larga del tríceps'),
+(45, 'Fondos en Banco o Paralelas para Tríceps', 'triceps', 'Fuerza de empuje tríceps'),
+(46, 'Extensión de Tríceps Copa a Dos Manos', 'triceps', 'Estiramiento de cabeza larga'),
+(47, 'Patada de Tríceps con Mancuerna/Polea', 'triceps', 'Contracción final'),
+(48, 'Plancha Abdominal Prona (Plank)', 'core', 'Resistencia isométrica del core anterior'),
+(49, 'Plancha Lateral', 'core', 'Estabilidad oblicua y cuadrado lumbar'),
+(50, 'Crunch Abdominal en Polea / Suelo', 'core', 'Flexión de tronco recto abdominal'),
+(51, 'Elevación de Piernas Colgado en Barra', 'core', 'Abdomen inferior y flexores'),
+(52, 'Rueda Abdominal (Ab Wheel Rollout)', 'core', 'Extensión y fuerza avanzada del core'),
+(53, 'Giros Rusos (Russian Twists)', 'core', 'Rotación y oblicuos'),
+(54, 'Bird Dog (Perro de Caza)', 'core', 'Estabilidad lumbo-pélvica y salud de espalda'),
+(55, 'Deadbug (Bicho Muerto)', 'core', 'Activación del transverso abdominal'),
+(56, 'Peso Muerto Convencional', 'cuerpo_completo', 'Fuerza total: cadena posterior y core'),
+(57, 'Kettlebell Swing', 'cuerpo_completo', 'Potencia de cadera y cardio metabólico'),
+(58, 'Clean and Press (Cargada y Press)', 'cuerpo_completo', 'Fuerza y potencia olímpica'),
+(59, 'Cinta de Correr (Caminata / Running)', 'cardio', 'Cardio continuo o intervalos LISS/HIIT'),
+(60, 'Bicicleta Fija / Spinning', 'cardio', 'Bajo impacto articular'),
+(61, 'Elíptico', 'cardio', 'Cardio cuerpo completo suave para rodillas'),
+(62, 'Remoergómetro (Máquina de Remo Concept)', 'cardio', 'Cardio de alta demanda metabólica'),
+(63, 'Salto a la Soga', 'cardio', 'Coordinación, pantorrillas y HIIT'),
+(64, 'Burpees', 'cardio', 'Acondicionamiento metabólico con peso corporal'),
+(65, 'Mountain Climbers (Escaladores)', 'cardio', 'Cardio dinámico y activación abdominal'),
+(66, 'Battle Ropes (Cuerdas de Combate)', 'cardio', 'HIIT de tren superior y hombros')
+ON DUPLICATE KEY UPDATE `nombre` = VALUES(`nombre`);
+
 
 CREATE OR REPLACE VIEW `v_prof_alumnos` AS
 SELECT 
